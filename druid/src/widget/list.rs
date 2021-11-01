@@ -14,11 +14,13 @@
 
 //! Simple list view widget.
 
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::f64;
 use std::ops::Deref;
 use std::sync::Arc;
+use std::rc::Rc;
 
 use tracing::{instrument, trace};
 
@@ -184,6 +186,42 @@ impl<S: Data, T: Data> ListIter<(S, T)> for (S, Vector<T>) {
     }
 }
 
+impl<T: Data> ListIter<T> for Rc<RefCell<Vec<T>>> {
+    fn for_each(&self, mut cb: impl FnMut(&T, usize)) {
+        for (i, item) in self.as_ref().borrow().iter().enumerate() {
+            cb(item, i);
+        }
+    }
+
+    fn for_each_mut(&mut self, mut cb: impl FnMut(&mut T, usize)) {
+        let mut new_data: Option<Vec<T>> = None;
+
+        for (i, item) in self.as_ref().borrow().iter().enumerate() {
+            let mut d = item.to_owned();
+            cb(&mut d, i);
+
+            if !item.same(&d) {
+                match &mut new_data {
+                    Some(vec) => {
+                        vec[i] = d;
+                    }
+                    None => {
+                        let mut new = self.as_ref().borrow().clone();
+                        new[i] = d;
+                        new_data = Some(new);
+                    }
+                }
+            }
+        }
+        if let Some(vec) = new_data {
+            *self = Rc::new(RefCell::new(vec));
+        }
+    }
+
+    fn data_len(&self) -> usize {
+        self.as_ref().borrow().len()
+    }
+}
 impl<T: Data> ListIter<T> for Arc<Vec<T>> {
     fn for_each(&self, mut cb: impl FnMut(&T, usize)) {
         for (i, item) in self.iter().enumerate() {
